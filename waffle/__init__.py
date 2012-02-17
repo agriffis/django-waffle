@@ -7,15 +7,20 @@ from django.db.models.signals import post_save, post_delete, m2m_changed
 
 from waffle.models import Flag, Sample, Switch
 
+SUFFIX = getattr(settings, 'WAFFLE_SUFFIX', '')
 
-FLAG_CACHE_KEY = u'waffle:flag:{n}'
-FLAGS_ALL_CACHE_KEY = u'waffle:flags:all'
-FLAG_USERS_CACHE_KEY = u'waffle:flag:{n}:users'
-FLAG_GROUPS_CACHE_KEY = u'waffle:flag:{n}:groups'
-SAMPLE_CACHE_KEY = u'waffle:sample:{n}'
-SAMPLES_ALL_CACHE_KEY = u'waffle:samples:all'
-SWITCH_CACHE_KEY = u'waffle:switch:{n}'
-SWITCHES_ALL_CACHE_KEY = u'waffle:switches:all'
+
+def key(name):
+    return u':'.join([SUFFIX, name])
+
+FLAG_CACHE_KEY = key(u'waffle:flag:{n}')
+FLAGS_ALL_CACHE_KEY = key(u'waffle:flags:all')
+FLAG_USERS_CACHE_KEY = key(u'waffle:flag:{n}:users')
+FLAG_GROUPS_CACHE_KEY = key(u'waffle:flag:{n}:groups')
+SAMPLE_CACHE_KEY = key(u'waffle:sample:{n}')
+SAMPLES_ALL_CACHE_KEY = key(u'waffle:samples:all')
+SWITCH_CACHE_KEY = key(u'waffle:switch:{n}')
+SWITCHES_ALL_CACHE_KEY = key(u'waffle:switches:all')
 COOKIE_NAME = getattr(settings, 'WAFFLE_COOKIE', 'dwf_%s')
 
 

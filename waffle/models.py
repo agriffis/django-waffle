@@ -1,5 +1,11 @@
 from django.contrib.auth.models import Group, User
 from django.db import models
+from django.conf import settings
+
+
+SUFFIX = getattr(settings, 'WAFFLE_TABLE_SUFFIX', '')
+if SUFFIX:
+    SUFFIX = '_' + SUFFIX
 
 
 class Flag(models.Model):
@@ -34,6 +40,9 @@ class Flag(models.Model):
     def __unicode__(self):
         return self.name
 
+    class Meta:
+        db_table = 'waffle_flag' + SUFFIX
+
 
 class Switch(models.Model):
     """A feature switch.
@@ -53,6 +62,7 @@ class Switch(models.Model):
 
     class Meta:
         verbose_name_plural = 'Switches'
+        db_table = 'waffle_switch' + SUFFIX
 
 
 class Sample(models.Model):
@@ -69,3 +79,6 @@ class Sample(models.Model):
 
     def __unicode__(self):
         return self.name
+
+    class Meta:
+        db_table = 'waffle_sample' + SUFFIX
