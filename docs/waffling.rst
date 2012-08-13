@@ -1,0 +1,5 @@
+.. _waffling-chapter:
+
+========
+Waffling
+========

@@ -12,6 +12,11 @@ Waffle has :ref:`three types of objects <objects-chapter>`: :ref:`Flags
 <objects-samples>` that can be used to control the features of your website,
 who sees them, and how they work.
 
+Feature-flippers are particularly useful for continuous integration and
+deployment, where you may be merging incomplete code into master. One of the
+oldest and best posts about this sort of development is from Flickr_. I
+recommend reading it.
+
 
 :Version:       |release|
 :Code:          https://github.com/jsocol/django-waffle
@@ -25,6 +30,7 @@ Contents:
 
    installation
    usage
+   objects
    testing-waffles
    contributing
 
@@ -36,3 +42,4 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
+.. _Flickr: http://code.flickr.com/blog/2009/12/02/flipping-out/
