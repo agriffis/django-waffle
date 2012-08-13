@@ -17,11 +17,12 @@ while using feature flags. I'll talk specifically about Flags but this
 can equally apply to Switches or Samples.
 
 
-
+Testing in Python
+=================
 
 
 Mocking Flags
-=============
+-------------
 
 Flags may be non-deterministic by nature. Who is making the request?
 Is the Flag defined? Is it a dice-roll or a roll-out? These make
@@ -30,7 +31,7 @@ deterministically.
 
 
 Create the Flag
----------------
+^^^^^^^^^^^^^^^
 
 The simplest option is to create the Flag with some deterministic
 options, for example::
@@ -43,7 +44,7 @@ can use it in tests to guarantee one code-path or the other is hit.
 
 
 Mocking ``flag_is_active``
---------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Creating the flag may not always be possible or the best option. You
 can also use a library like Mock_ or Fudge_ to mock other parts of the
@@ -64,7 +65,7 @@ for some situations.
 
 
 Mocking Template Helpers
-------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 Waffle's template helpers for Django or Jinja require some special
 mocking. For Jinja::
