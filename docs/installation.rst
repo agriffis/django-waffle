@@ -1,3 +1,5 @@
+.. _installation-chapter:
+
 ============
 Installation
 ============
@@ -28,3 +30,17 @@ Since Waffle will be setting cookies on response objects, you probably
 want it *below* any middleware that tweaks cookies before sending them
 out.
 
+If you want to use Waffle in :ref:`JavaScript <javascript-chapter>`,
+you'll also need to add it to your root URL config::
+
+    # urls.py
+
+    urlpatterns = patterns('',
+        # ...
+        (r'^', include('waffle.urls')),
+        # ...
+    )
+
+And then include the script via the named ``wafflejs`` URL::
+
+    <script src="{% url wafflejs %}"></script>
