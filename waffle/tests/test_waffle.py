@@ -224,13 +224,29 @@ class WaffleTests(TestCase):
         request = get()
         assert not waffle.flag_is_active(request, 'foo')
 
-    @mock.patch.object(settings._wrapped, 'WAFFLE_FLAG_DEFAULT', True)
+    @mock.patch.multiple(settings._wrapped, WAFFLE_FLAG_DEFAULT=True)
     def test_undefined_default(self):
         """WAFFLE_FLAG_DEFAULT controls undefined flags."""
         request = get()
         assert waffle.flag_is_active(request, 'foo')
 
-    @mock.patch.object(settings._wrapped, 'WAFFLE_OVERRIDE', True)
+    @mock.patch.multiple(settings._wrapped, create=True, WAFFLE_FLAGS={'foo': True}, DEBUG=True)
+    def test_undefined_settings_debug(self):
+        """WAFFLE_FLAGS, when present, defines the canonical list of flags."""
+        reload(waffle)  # update module globals from settings
+        request = get()
+        assert waffle.flag_is_active(request, 'foo')
+        self.assertRaises(AssertionError, waffle.flag_is_active, request, 'bar')
+
+    @mock.patch.multiple(settings._wrapped, create=True, WAFFLE_FLAGS={'foo': True}, DEBUG=False)
+    def test_undefined_settings_nondebug(self):
+        """WAFFLE_FLAGS, when present, defines the canonical list of flags."""
+        reload(waffle)  # update module globals from settings
+        request = get()
+        assert waffle.flag_is_active(request, 'foo')
+        assert not waffle.flag_is_active(request, 'bar')
+
+    @mock.patch.multiple(settings._wrapped, WAFFLE_OVERRIDE=True)
     def test_override(self):
         request = get(foo='1')
         Flag.objects.create(name='foo')  # Off for everyone.
@@ -308,11 +324,25 @@ class SwitchTests(TestCase):
     def test_undefined(self):
         assert not waffle.switch_is_active('foo')
 
-    @mock.patch.object(settings._wrapped, 'WAFFLE_SWITCH_DEFAULT', True)
+    @mock.patch.multiple(settings._wrapped, WAFFLE_SWITCH_DEFAULT=True)
     def test_undefined_default(self):
         assert waffle.switch_is_active('foo')
 
-    @mock.patch.object(settings._wrapped, 'DEBUG', True)
+    @mock.patch.multiple(settings._wrapped, create=True, WAFFLE_SWITCHES={'foo': True}, DEBUG=True)
+    def test_undefined_settings_debug(self):
+        """WAFFLE_SWITCHES, when present, defines the canonical list of switches."""
+        reload(waffle)  # update module globals from settings
+        assert waffle.switch_is_active('foo')
+        self.assertRaises(AssertionError, waffle.switch_is_active, 'bar')
+
+    @mock.patch.multiple(settings._wrapped, create=True, WAFFLE_SWITCHES={'foo': True}, DEBUG=False)
+    def test_undefined_settings_nondebug(self):
+        """WAFFLE_SWITCHES, when present, defines the canonical list of switches."""
+        reload(waffle)  # update module globals from settings
+        assert waffle.switch_is_active('foo')
+        assert not waffle.switch_is_active('bar')
+
+    @mock.patch.multiple(settings._wrapped, DEBUG=True)
     def test_no_query(self):
         """Do not make two queries for a non-existent switch."""
         assert not Switch.objects.filter(name='foo').exists()
@@ -336,6 +366,20 @@ class SampleTests(TestCase):
     def test_undefined(self):
         assert not waffle.sample_is_active('foo')
 
-    @mock.patch.object(settings._wrapped, 'WAFFLE_SAMPLE_DEFAULT', True)
+    @mock.patch.multiple(settings._wrapped, WAFFLE_SAMPLE_DEFAULT=True)
     def test_undefined_default(self):
         assert waffle.sample_is_active('foo')
+
+    @mock.patch.multiple(settings._wrapped, create=True, WAFFLE_SAMPLES={'foo': 100}, DEBUG=True)
+    def test_undefined_settings_debug(self):
+        """WAFFLE_SAMPLES, when present, defines the canonical list of samples."""
+        reload(waffle)  # update module globals from settings
+        assert waffle.sample_is_active('foo')
+        self.assertRaises(AssertionError, waffle.sample_is_active, 'bar')
+
+    @mock.patch.multiple(settings._wrapped, create=True, WAFFLE_SAMPLES={'foo': 100}, DEBUG=False)
+    def test_undefined_settings_nondebug(self):
+        """WAFFLE_SAMPLES, when present, defines the canonical list of samples."""
+        reload(waffle)  # update module globals from settings
+        assert waffle.sample_is_active('foo')
+        assert not waffle.sample_is_active('bar')

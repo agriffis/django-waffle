@@ -13,23 +13,75 @@ __version__ = '.'.join(map(str, VERSION))
 
 
 CACHE_PREFIX = getattr(settings, 'WAFFLE_CACHE_PREFIX', u'waffle:')
+FLAGS = getattr(settings, 'WAFFLE_FLAGS', None)
 FLAG_CACHE_KEY = CACHE_PREFIX + u'flag:{n}'
 FLAGS_ALL_CACHE_KEY = CACHE_PREFIX + u'flags:all'
 FLAG_USERS_CACHE_KEY = CACHE_PREFIX + u'flag:{n}:users'
 FLAG_GROUPS_CACHE_KEY = CACHE_PREFIX + u'flag:{n}:groups'
+SAMPLES = getattr(settings, 'WAFFLE_SAMPLES', None)
 SAMPLE_CACHE_KEY = CACHE_PREFIX + u'sample:{n}'
 SAMPLES_ALL_CACHE_KEY = CACHE_PREFIX + u'samples:all'
+SWITCHES = getattr(settings, 'WAFFLE_SWITCHES', None)
 SWITCH_CACHE_KEY = CACHE_PREFIX + u'switch:{n}'
 SWITCHES_ALL_CACHE_KEY = CACHE_PREFIX + u'switches:all'
 COOKIE_NAME = getattr(settings, 'WAFFLE_COOKIE', 'dwf_%s')
 TEST_COOKIE_NAME = getattr(settings, 'WAFFLE_TESTING_COOKIE', 'dwft_%s')
 
 
-class DoesNotExist(object):
-    """The record does not exist."""
-    @property
-    def active(self):
-        return getattr(settings, 'WAFFLE_SWITCH_DEFAULT', False)
+class MissingSwitch(object):
+    """The switch does not exist."""
+    def __init__(self, name):
+        super(MissingSwitch, self).__init__()
+        self.name = name
+        self.active = (SWITCHES or {}).get(name, getattr(
+            settings, 'WAFFLE_SWITCH_DEFAULT', False))
+
+
+class MissingSample(object):
+    """The sample does not exist."""
+    def __init__(self, name):
+        super(MissingSample, self).__init__()
+        self.name = name
+        value = (SAMPLES or {}).get(name, getattr(
+            settings, 'WAFFLE_SAMPLE_DEFAULT', 0))
+        self.percent = (100 if value is True else
+                        0 if value is False else value)
+
+
+def all_flags(request):
+    if FLAGS is not None:
+        flags = FLAGS.keys()
+    else:
+        flags = cache.get(FLAGS_ALL_CACHE_KEY)
+        if not flags:
+            flags = Flag.objects.values_list('name', flat=True)
+            cache.add(FLAGS_ALL_CACHE_KEY, flags)
+    return {f: flag_is_active(request, f) for f in flags}
+
+
+def all_switches():
+    switches = cache.get(SWITCHES_ALL_CACHE_KEY)
+    if not switches:
+        dbswitches = Switch.objects.values_list('name', 'active')
+        if SWITCHES is not None:
+            switches = dict(SWITCHES)
+            switches.update({name: active for name, active in dbswitches
+                             if name in switches})
+        else:
+            switches = {name: active for name, active in dbswitches}
+        cache.add(SWITCHES_ALL_CACHE_KEY, switches)
+    return switches
+
+
+def all_samples():
+    if SAMPLES is not None:
+        samples = SAMPLES.keys()
+    else:
+        samples = cache.get(SAMPLES_ALL_CACHE_KEY)
+        if not samples:
+            samples = Sample.objects.values_list('name', flat=True)
+            cache.add(SAMPLES_ALL_CACHE_KEY, samples)
+    return {s: sample_is_active(s) for s in samples}
 
 
 def set_flag(request, flag_name, active=True, session_only=False):
@@ -40,13 +92,19 @@ def set_flag(request, flag_name, active=True, session_only=False):
 
 
 def flag_is_active(request, flag_name):
+    if settings.DEBUG and FLAGS is not None:
+        assert flag_name in FLAGS
+
     flag = cache.get(FLAG_CACHE_KEY.format(n=flag_name))
     if flag is None:
         try:
             flag = Flag.objects.get(name=flag_name)
             cache_flag(instance=flag)
         except Flag.DoesNotExist:
-            return getattr(settings, 'WAFFLE_FLAG_DEFAULT', False)
+            default = getattr(settings, 'WAFFLE_FLAG_DEFAULT', False)
+            if FLAGS is not None:
+                return FLAGS.get(flag_name, default)
+            return default
 
     if getattr(settings, 'WAFFLE_OVERRIDE', False):
         if flag_name in request.GET:
@@ -121,28 +179,33 @@ def flag_is_active(request, flag_name):
 
 
 def switch_is_active(switch_name):
+    if settings.DEBUG and SWITCHES is not None:
+        assert switch_name in SWITCHES
+
     switch = cache.get(SWITCH_CACHE_KEY.format(n=switch_name))
     if switch is None:
         try:
             switch = Switch.objects.get(name=switch_name)
-            cache_switch(instance=switch)
         except Switch.DoesNotExist:
-            switch = DoesNotExist()
-            switch.name = switch_name
-            cache_switch(instance=switch)
+            switch = MissingSwitch(name=switch_name)
+        cache_switch(instance=switch)
     return switch.active
 
 
 def sample_is_active(sample_name):
+    if settings.DEBUG and SAMPLES is not None:
+        assert sample_name in SAMPLES
+
     sample = cache.get(SAMPLE_CACHE_KEY.format(n=sample_name))
     if sample is None:
         try:
             sample = Sample.objects.get(name=sample_name)
-            cache_sample(instance=sample)
         except Sample.DoesNotExist:
-            return getattr(settings, 'WAFFLE_SAMPLE_DEFAULT', False)
+            sample = MissingSample(name=sample_name)
+        cache_sample(instance=sample)
 
-    return Decimal(str(random.uniform(0, 100))) <= sample.percent
+    return (False if sample.percent == 0 else
+            Decimal(str(random.uniform(0, 100))) <= sample.percent)
 
 
 def cache_flag(**kwargs):
