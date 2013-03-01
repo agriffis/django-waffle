@@ -14,15 +14,16 @@ __version__ = '.'.join(map(str, VERSION))
 
 
 CACHE_PREFIX = getattr(settings, 'WAFFLE_CACHE_PREFIX', u'waffle:')
-FLAGS = getattr(settings, 'WAFFLE_FLAGS', None)
+FLAGS = getattr(settings, 'WAFFLE_FLAGS', {})
+FLAGS_FORCE = getattr(settings, 'WAFFLE_FLAGS_FORCE', {})
 FLAG_CACHE_KEY = u'flag:%s'
-FLAGS_ALL_CACHE_KEY = u'flags:all'
 FLAG_USERS_CACHE_KEY = u'flag:%s:users'
 FLAG_GROUPS_CACHE_KEY = u'flag:%s:groups'
-SAMPLES = getattr(settings, 'WAFFLE_SAMPLES', None)
+SAMPLES = getattr(settings, 'WAFFLE_SAMPLES', {})
+SAMPLES_FORCE = getattr(settings, 'WAFFLE_SAMPLES_FORCE', {})
 SAMPLE_CACHE_KEY = u'sample:%s'
-SAMPLES_ALL_CACHE_KEY = u'samples:all'
-SWITCHES = getattr(settings, 'WAFFLE_SWITCHES', None)
+SWITCHES = getattr(settings, 'WAFFLE_SWITCHES', {})
+SWITCHES_FORCE = getattr(settings, 'WAFFLE_SWITCHES_FORCE', {})
 SWITCH_CACHE_KEY = u'switch:%s'
 SWITCHES_ALL_CACHE_KEY = u'switches:all'
 COOKIE_NAME = getattr(settings, 'WAFFLE_COOKIE', 'dwf_%s')
@@ -35,60 +36,20 @@ def keyfmt(k, v=None):
     return CACHE_PREFIX + hashlib.md5(k % v).hexdigest()
 
 
-class MissingSwitch(object):
-    """The switch does not exist."""
-    def __init__(self, name):
-        super(MissingSwitch, self).__init__()
-        self.name = name
-        self.active = (SWITCHES or {}).get(name, getattr(
-            settings, 'WAFFLE_SWITCH_DEFAULT', False))
-
-
-class MissingSample(object):
-    """The sample does not exist."""
-    def __init__(self, name):
-        super(MissingSample, self).__init__()
-        self.name = name
-        value = (SAMPLES or {}).get(name, getattr(
-            settings, 'WAFFLE_SAMPLE_DEFAULT', 0))
-        self.percent = (100 if value is True else
-                        0 if value is False else value)
-
-
 def all_flags(request):
-    if FLAGS is not None:
-        flags = FLAGS.keys()
-    else:
-        flags = cache.get(FLAGS_ALL_CACHE_KEY)
-        if not flags:
-            flags = Flag.objects.values_list('name', flat=True)
-            cache.add(FLAGS_ALL_CACHE_KEY, flags)
-    return {f: flag_is_active(request, f) for f in flags}
+    return {f: flag_is_active(request, f) for f in FLAGS}
 
 
 def all_switches():
     switches = cache.get(SWITCHES_ALL_CACHE_KEY)
-    if not switches:
-        dbswitches = Switch.objects.values_list('name', 'active')
-        if SWITCHES is not None:
-            switches = dict(SWITCHES)
-            switches.update({name: active for name, active in dbswitches
-                             if name in switches})
-        else:
-            switches = {name: active for name, active in dbswitches}
-        cache.add(SWITCHES_ALL_CACHE_KEY, switches)
+    if switches is None:
+        switches = {s: switch_is_active(s) for s in SWITCHES}
+        cache.set(SWITCHES_ALL_CACHE_KEY, switches)
     return switches
 
 
 def all_samples():
-    if SAMPLES is not None:
-        samples = SAMPLES.keys()
-    else:
-        samples = cache.get(SAMPLES_ALL_CACHE_KEY)
-        if not samples:
-            samples = Sample.objects.values_list('name', flat=True)
-            cache.add(SAMPLES_ALL_CACHE_KEY, samples)
-    return {s: sample_is_active(s) for s in samples}
+    return {s: sample_is_active(s) for s in SAMPLES}
 
 
 def set_flag(request, flag_name, active=True, session_only=False):
@@ -99,23 +60,22 @@ def set_flag(request, flag_name, active=True, session_only=False):
 
 
 def flag_is_active(request, flag_name):
-    if settings.DEBUG and FLAGS is not None:
+    if settings.DEBUG:
         assert flag_name in FLAGS
-
-    flag = cache.get(keyfmt(FLAG_CACHE_KEY, flag_name))
-    if flag is None:
-        try:
-            flag = Flag.objects.get(name=flag_name)
-            cache_flag(instance=flag)
-        except Flag.DoesNotExist:
-            default = getattr(settings, 'WAFFLE_FLAG_DEFAULT', False)
-            if FLAGS is not None:
-                return FLAGS.get(flag_name, default)
-            return default
+    elif flag_name not in FLAGS:
+        return False
 
     if getattr(settings, 'WAFFLE_OVERRIDE', False):
         if flag_name in request.GET:
             return request.GET[flag_name] == '1'
+
+    if flag_name in FLAGS_FORCE:
+        return FLAGS_FORCE[flag_name]
+
+    flag = cache.get(keyfmt(FLAG_CACHE_KEY, flag_name))
+    if flag is None:
+        flag = Flag.objects.get_or_create(name=flag_name)
+        cache_flag(instance=flag)
 
     if flag.everyone:
         return True
@@ -123,6 +83,8 @@ def flag_is_active(request, flag_name):
         return False
 
     if flag.testing:  # Testing mode is on.
+        if flag_name in request.GET:
+            return request.GET[flag_name] == '1'
         tc = TEST_COOKIE_NAME % flag_name
         if tc in request.GET:
             on = request.GET[tc] == '1'
@@ -183,34 +145,47 @@ def flag_is_active(request, flag_name):
             return True
         set_flag(request, flag_name, False, flag.rollout)
 
-    return False
+    return FLAGS[flag_name]
 
 
 def switch_is_active(switch_name):
-    if settings.DEBUG and SWITCHES is not None:
+    if settings.DEBUG:
         assert switch_name in SWITCHES
+    elif switch_name not in SWITCHES:
+        return False
 
-    switch = cache.get(keyfmt(SWITCH_CACHE_KEY, switch_name))
-    if switch is None:
-        try:
-            switch = Switch.objects.get(name=switch_name)
-        except Switch.DoesNotExist:
-            switch = MissingSwitch(name=switch_name)
-        cache_switch(instance=switch)
+    if switch_name in SWITCHES_FORCE:
+        switch = Switch(name=switch_name, active=SWITCHES_FORCE[switch_name])
+    else:
+        switch = cache.get(keyfmt(SWITCH_CACHE_KEY, switch_name))
+        if switch is None:
+            try:
+                switch = Switch.objects.get(name=switch_name)
+            except Switch.DoesNotExist:
+                switch = Switch(name=switch_name, active=SWITCHES[switch_name])
+            cache_switch(instance=switch)
+
     return switch.active
 
 
 def sample_is_active(sample_name):
-    if settings.DEBUG and SAMPLES is not None:
+    if settings.DEBUG:
         assert sample_name in SAMPLES
+    elif sample_name not in SAMPLES:
+        return False
 
-    sample = cache.get(keyfmt(SAMPLE_CACHE_KEY, sample_name))
-    if sample is None:
-        try:
-            sample = Sample.objects.get(name=sample_name)
-        except Sample.DoesNotExist:
-            sample = MissingSample(name=sample_name)
-        cache_sample(instance=sample)
+    value_percent = lambda v: (100 if v is True else 0 if v is False else v)
+
+    if sample_name in SAMPLES_FORCE:
+        sample = Sample(name=sample_name, percent=value_percent(SAMPLES_FORCE[sample_name]))
+    else:
+        sample = cache.get(keyfmt(SAMPLE_CACHE_KEY, sample_name))
+        if sample is None:
+            try:
+                sample = Sample.objects.get(name=sample_name)
+            except Sample.DoesNotExist:
+                sample = Sample(name=sample_name, percent=value_percent(SAMPLES[sample_name]))
+            cache_sample(instance=sample)
 
     return (False if sample.percent == 0 else
             Decimal(str(random.uniform(0, 100))) <= sample.percent)
