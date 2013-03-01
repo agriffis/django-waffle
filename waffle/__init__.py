@@ -74,7 +74,7 @@ def flag_is_active(request, flag_name):
 
     flag = cache.get(keyfmt(FLAG_CACHE_KEY, flag_name))
     if flag is None:
-        flag = Flag.objects.get_or_create(name=flag_name)
+        flag, created = Flag.objects.get_or_create(name=flag_name)
         cache_flag(instance=flag)
 
     if flag.everyone:
