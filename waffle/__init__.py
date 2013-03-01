@@ -1,5 +1,6 @@
 from decimal import Decimal
 import random
+import hashlib
 
 from django.conf import settings
 from django.core.cache import cache
@@ -8,24 +9,30 @@ from django.db.models.signals import post_save, post_delete, m2m_changed
 from waffle.models import Flag, Sample, Switch
 
 
-VERSION = (0, 8, 1)
+VERSION = (0, 9, 0)
 __version__ = '.'.join(map(str, VERSION))
 
 
 CACHE_PREFIX = getattr(settings, 'WAFFLE_CACHE_PREFIX', u'waffle:')
 FLAGS = getattr(settings, 'WAFFLE_FLAGS', None)
-FLAG_CACHE_KEY = CACHE_PREFIX + u'flag:{n}'
-FLAGS_ALL_CACHE_KEY = CACHE_PREFIX + u'flags:all'
-FLAG_USERS_CACHE_KEY = CACHE_PREFIX + u'flag:{n}:users'
-FLAG_GROUPS_CACHE_KEY = CACHE_PREFIX + u'flag:{n}:groups'
+FLAG_CACHE_KEY = u'flag:%s'
+FLAGS_ALL_CACHE_KEY = u'flags:all'
+FLAG_USERS_CACHE_KEY = u'flag:%s:users'
+FLAG_GROUPS_CACHE_KEY = u'flag:%s:groups'
 SAMPLES = getattr(settings, 'WAFFLE_SAMPLES', None)
-SAMPLE_CACHE_KEY = CACHE_PREFIX + u'sample:{n}'
-SAMPLES_ALL_CACHE_KEY = CACHE_PREFIX + u'samples:all'
+SAMPLE_CACHE_KEY = u'sample:%s'
+SAMPLES_ALL_CACHE_KEY = u'samples:all'
 SWITCHES = getattr(settings, 'WAFFLE_SWITCHES', None)
-SWITCH_CACHE_KEY = CACHE_PREFIX + u'switch:{n}'
-SWITCHES_ALL_CACHE_KEY = CACHE_PREFIX + u'switches:all'
+SWITCH_CACHE_KEY = u'switch:%s'
+SWITCHES_ALL_CACHE_KEY = u'switches:all'
 COOKIE_NAME = getattr(settings, 'WAFFLE_COOKIE', 'dwf_%s')
 TEST_COOKIE_NAME = getattr(settings, 'WAFFLE_TESTING_COOKIE', 'dwft_%s')
+
+
+def keyfmt(k, v=None):
+    if v is None:
+        return CACHE_PREFIX + k
+    return CACHE_PREFIX + hashlib.md5(k % v).hexdigest()
 
 
 class MissingSwitch(object):
@@ -95,7 +102,7 @@ def flag_is_active(request, flag_name):
     if settings.DEBUG and FLAGS is not None:
         assert flag_name in FLAGS
 
-    flag = cache.get(FLAG_CACHE_KEY.format(n=flag_name))
+    flag = cache.get(keyfmt(FLAG_CACHE_KEY, flag_name))
     if flag is None:
         try:
             flag = Flag.objects.get(name=flag_name)
@@ -143,19 +150,20 @@ def flag_is_active(request, flag_name):
                 request.LANGUAGE_CODE in languages):
             return True
 
-    flag_users = cache.get(FLAG_USERS_CACHE_KEY.format(n=flag.name))
+    flag_users = cache.get(keyfmt(FLAG_USERS_CACHE_KEY, flag.name))
     if flag_users is None:
         flag_users = flag.users.all()
         cache_flag(instance=flag)
     if user in flag_users:
         return True
 
-    flag_groups = cache.get(FLAG_GROUPS_CACHE_KEY.format(n=flag.name))
+    flag_groups = cache.get(keyfmt(FLAG_GROUPS_CACHE_KEY, flag.name))
     if flag_groups is None:
         flag_groups = flag.groups.all()
         cache_flag(instance=flag)
+    user_groups = user.groups.all()
     for group in flag_groups:
-        if group in user.groups.all():
+        if group in user_groups:
             return True
 
     if flag.percent > 0:
@@ -182,7 +190,7 @@ def switch_is_active(switch_name):
     if settings.DEBUG and SWITCHES is not None:
         assert switch_name in SWITCHES
 
-    switch = cache.get(SWITCH_CACHE_KEY.format(n=switch_name))
+    switch = cache.get(keyfmt(SWITCH_CACHE_KEY, switch_name))
     if switch is None:
         try:
             switch = Switch.objects.get(name=switch_name)
@@ -196,7 +204,7 @@ def sample_is_active(sample_name):
     if settings.DEBUG and SAMPLES is not None:
         assert sample_name in SAMPLES
 
-    sample = cache.get(SAMPLE_CACHE_KEY.format(n=sample_name))
+    sample = cache.get(keyfmt(SAMPLE_CACHE_KEY, sample_name))
     if sample is None:
         try:
             sample = Sample.objects.get(name=sample_name)
@@ -213,18 +221,18 @@ def cache_flag(**kwargs):
     # action is included for m2m_changed signal. Only cache on the post_*.
     if not action or action in ['post_add', 'post_remove', 'post_clear']:
         f = kwargs.get('instance')
-        cache.add(FLAG_CACHE_KEY.format(n=f.name), f)
-        cache.add(FLAG_USERS_CACHE_KEY.format(n=f.name), f.users.all())
-        cache.add(FLAG_GROUPS_CACHE_KEY.format(n=f.name), f.groups.all())
+        cache.add(keyfmt(FLAG_CACHE_KEY, f.name), f)
+        cache.add(keyfmt(FLAG_USERS_CACHE_KEY, f.name), f.users.all())
+        cache.add(keyfmt(FLAG_GROUPS_CACHE_KEY, f.name), f.groups.all())
 
 
 def uncache_flag(**kwargs):
     flag = kwargs.get('instance')
     data = {
-        FLAG_CACHE_KEY.format(n=flag.name): None,
-        FLAG_USERS_CACHE_KEY.format(n=flag.name): None,
-        FLAG_GROUPS_CACHE_KEY.format(n=flag.name): None,
-        FLAGS_ALL_CACHE_KEY: None
+        keyfmt(FLAG_CACHE_KEY, flag.name): None,
+        keyfmt(FLAG_USERS_CACHE_KEY, flag.name): None,
+        keyfmt(FLAG_GROUPS_CACHE_KEY, flag.name): None,
+        keyfmt(FLAGS_ALL_CACHE_KEY): None
     }
     cache.set_many(data, 5)
 
@@ -238,13 +246,13 @@ m2m_changed.connect(uncache_flag, sender=Flag.groups.through,
 
 def cache_sample(**kwargs):
     sample = kwargs.get('instance')
-    cache.add(SAMPLE_CACHE_KEY.format(n=sample.name), sample)
+    cache.add(keyfmt(SAMPLE_CACHE_KEY, sample.name), sample)
 
 
 def uncache_sample(**kwargs):
     sample = kwargs.get('instance')
-    cache.set(SAMPLE_CACHE_KEY.format(n=sample.name), None, 5)
-    cache.set(SAMPLES_ALL_CACHE_KEY, None, 5)
+    cache.set(keyfmt(SAMPLE_CACHE_KEY, sample.name), None, 5)
+    cache.set(keyfmt(SAMPLES_ALL_CACHE_KEY), None, 5)
 
 post_save.connect(uncache_sample, sender=Sample, dispatch_uid='save_sample')
 post_delete.connect(uncache_sample, sender=Sample,
@@ -253,13 +261,13 @@ post_delete.connect(uncache_sample, sender=Sample,
 
 def cache_switch(**kwargs):
     switch = kwargs.get('instance')
-    cache.add(SWITCH_CACHE_KEY.format(n=switch.name), switch)
+    cache.add(keyfmt(SWITCH_CACHE_KEY, switch.name), switch)
 
 
 def uncache_switch(**kwargs):
     switch = kwargs.get('instance')
-    cache.set(SWITCH_CACHE_KEY.format(n=switch.name), None, 5)
-    cache.set(SWITCHES_ALL_CACHE_KEY, None, 5)
+    cache.set(keyfmt(SWITCH_CACHE_KEY, switch.name), None, 5)
+    cache.set(keyfmt(SWITCHES_ALL_CACHE_KEY), None, 5)
 
 post_delete.connect(uncache_switch, sender=Switch,
                     dispatch_uid='delete_switch')

@@ -6,12 +6,13 @@ from django.db import connection
 
 import mock
 from nose.tools import eq_
-from test_utils import RequestFactory, TestCase
+from test_utils import RequestFactory
 
 from test_app import views
 import waffle
 from waffle.middleware import WaffleMiddleware
 from waffle.models import Flag, Sample, Switch
+from waffle.tests.base import TestCase
 
 
 def get(**kw):
@@ -70,6 +71,7 @@ class WaffleTests(TestCase):
         assert not 'dwf_myflag' in response.cookies
 
         non_superuser = User(username='bar', is_superuser=False)
+        non_superuser.save()
         request.user = non_superuser
         response = process_request(request, views.flag_in_view)
         eq_('off', response.content)
@@ -90,6 +92,7 @@ class WaffleTests(TestCase):
         assert not 'dwf_myflag' in response.cookies
 
         non_staff = User(username='foo', is_staff=False)
+        non_staff.save()
         request.user = non_staff
         response = process_request(request, views.flag_in_view)
         eq_('off', response.content)
@@ -121,7 +124,7 @@ class WaffleTests(TestCase):
         eq_('on', response.content)
         assert not 'dwf_myflag' in response.cookies
 
-        request.user = User(username='someone_else')
+        request.user = User.objects.create(username='someone_else')
         response = process_request(request, views.flag_in_view)
         eq_('off', response.content)
         assert not 'dwf_myflag' in response.cookies
