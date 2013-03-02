@@ -27,6 +27,7 @@ SWITCHES_FORCE = getattr(settings, 'WAFFLE_SWITCHES_FORCE', {})
 SWITCH_CACHE_KEY = u'switch:%s'
 SWITCHES_ALL_CACHE_KEY = u'switches:all'
 COOKIE_NAME = getattr(settings, 'WAFFLE_COOKIE', 'dwf_%s')
+ALLOW_OVERRIDE = getattr(settings, 'WAFFLE_OVERRIDE', False)
 TEST_COOKIE_NAME = getattr(settings, 'WAFFLE_TESTING_COOKIE', 'dwft_%s')
 
 
@@ -54,9 +55,32 @@ def all_samples():
 
 def set_flag(request, flag_name, active=True, session_only=False):
     """Set a flag value on a request object."""
-    if not hasattr(request, 'waffles'):
-        request.waffles = {}
     request.waffles[flag_name] = [active, session_only]
+
+
+def flag_is_requested(request, flag_name):
+    requested = request.GET.get(flag_name)
+    value = None
+
+    if requested is not None:
+        if requested != '':
+            value = requested == '1'
+
+        # Save the value in request.waffle_tests so that WaffleMiddleware
+        # will save in TEST_COOKIE_NAME
+        request.waffle_tests[flag_name] = value
+
+    elif flag_name in request.waffle_tests:
+        # This probably means ?waffle_reset, see
+        # WaffleMiddleware.process_request
+        value = request.waffle_tests[flag_name]
+
+    else:
+        tc = TEST_COOKIE_NAME % flag_name
+        if tc in request.COOKIES:
+            value = request.COOKIES[tc] == 'True'
+
+    return value
 
 
 def flag_is_active(request, flag_name):
@@ -65,9 +89,10 @@ def flag_is_active(request, flag_name):
     elif flag_name not in FLAGS:
         return False
 
-    if getattr(settings, 'WAFFLE_OVERRIDE', False):
-        if flag_name in request.GET:
-            return request.GET[flag_name] == '1'
+    if ALLOW_OVERRIDE:
+        value = flag_is_requested(request, flag_name)
+        if value is not None:
+            return value
 
     if flag_name in FLAGS_FORCE:
         return FLAGS_FORCE[flag_name]
@@ -83,17 +108,9 @@ def flag_is_active(request, flag_name):
         return False
 
     if flag.testing:  # Testing mode is on.
-        if flag_name in request.GET:
-            return request.GET[flag_name] == '1'
-        tc = TEST_COOKIE_NAME % flag_name
-        if tc in request.GET:
-            on = request.GET[tc] == '1'
-            if not hasattr(request, 'waffle_tests'):
-                request.waffle_tests = {}
-            request.waffle_tests[flag_name] = on
-            return on
-        if tc in request.COOKIES:
-            return request.COOKIES[tc] == 'True'
+        value = flag_is_requested(request, flag_name)
+        if value is not None:
+            return value
 
     user = request.user
 
