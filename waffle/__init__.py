@@ -102,15 +102,15 @@ def flag_is_active(request, flag_name):
         flag, created = Flag.objects.get_or_create(name=flag_name)
         cache_flag(instance=flag)
 
-    if flag.everyone:
-        return True
-    elif flag.everyone is False:
-        return False
-
     if flag.testing:  # Testing mode is on.
         value = flag_is_requested(request, flag_name)
         if value is not None:
             return value
+
+    if flag.everyone:
+        return True
+    elif flag.everyone is False:
+        return False
 
     user = request.user
 
